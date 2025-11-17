@@ -1,6 +1,5 @@
 import pandas as pd
 import os
-
 def load_anime(data_dir="data"):
     """Load and clean anime.csv file."""
     anime_path = os.path.join(data_dir, "anime.csv")
@@ -14,8 +13,8 @@ def load_anime(data_dir="data"):
     rename_map = {}
     if 'title' in anime.columns:
         rename_map['title'] = 'name'
-    if 'genres' in anime.columns:
-        rename_map['genres'] = 'genre'
+    if 'genre' in anime.columns:
+        rename_map['genre'] = 'genre'
     if 'score' in anime.columns:
         rename_map['score'] = 'rating'
     if rename_map:
