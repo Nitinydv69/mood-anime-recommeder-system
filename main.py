@@ -1,145 +1,126 @@
-# main.py — CLI for 🍥 MARS — Mood-Based Anime Recommender System 🪐
-
-import pandas as pd
-import matplotlib.pyplot as plt
 import os
+import sys
+from pathlib import Path
+import pandas as pd
 
-from scripts.data_cleaning import load_anime, merge_ratings_if_present
-from scripts.utils import MOOD_MAP, genre_match_mask, score_anime
-from scripts.storage import like, dislike, load_likes, load_dislikes
+# ---------- PATH SETUP ----------
+PROJECT_ROOT = Path(__file__).resolve().parent
+DATA_DIR = PROJECT_ROOT / "data"
+CSV_PATH = DATA_DIR / "anime.csv"
 
+# Make scripts importable
+sys.path.append(str(PROJECT_ROOT / "scripts"))
 
-def plot_scores(df: pd.DataFrame, mood: str) -> None:
-    """Plot a horizontal bar chart of score vs. anime name."""
-    if df.empty:
-        print("No data to plot.")
-        return
-
-    os.makedirs("data", exist_ok=True)
-    plt.figure(figsize=(10, 4))
-    plt.barh(df["name"], df["score"])
-    plt.xlabel("MARS score")
-    plt.ylabel("Anime title")
-    plt.title(f"MARS top picks for mood: {mood}")
-    plt.gca().invert_yaxis()
-    plt.tight_layout()
-    out_path = f"data/{mood}_chart.png"
-    plt.savefig(out_path, dpi=150)
-    print(f"Chart saved to {out_path}")
-    try:
-        plt.show()
-    except Exception:
-        # On headless systems this will fail; that's fine.
-        pass
+from data_cleaning import load_anime
+from recommend import (
+    MOOD_GENRE_MAP,
+    get_mood_recommendations,
+    get_similar_by_genre,
+)
 
 
-def pick_batch(scored: pd.DataFrame,
-               dislikes: set[str],
-               shown: set[str],
-               batch_size: int = 10,
-               pool_size: int = 50) -> pd.DataFrame:
+# ---------- CLI FUNCTIONS ----------
+def print_header():
+    print("\n")
+    print("🍥 MARS — Mood-Based Anime Recommender System 🪐")
+    print("------------------------------------------------")
+    print("Welcome to MARS CLI! Explore anime by mood and similarity.\n")
+
+
+def choose_mood():
     """
-    From a scored dataframe:
-    - drop disliked
-    - from top pool_size, drop already shown
-    - sample up to batch_size items
+    Let the user type the mood name instead of numbers.
+    Accepts things like 'happy', ' Happy  ', etc.
     """
-    df = scored.copy()
-    if dislikes:
-        df = df[~df["name"].isin(dislikes)]
-    df = df.sort_values("score", ascending=False).head(pool_size)
-    if shown:
-        df = df[~df["name"].isin(shown)]
-    if df.empty:
-        return df
-    return df.sample(min(batch_size, len(df)))
-
-
-def run_cli() -> None:
-    print("\n🍥 MARS — Mood-Based Anime Recommender System 🪐 (CLI)\n")
-
-    anime_df = load_anime()
-    anime_df = merge_ratings_if_present(anime_df)
-
-    likes = load_likes()
-    dislikes = load_dislikes()
+    moods = list(MOOD_GENRE_MAP.keys())
+    print("Available moods:")
+    for m in moods:
+        print(f"  - {m}")
 
     while True:
-        print("\nAvailable moods:")
-        print(", ".join(MOOD_MAP.keys()))
-        mood = input("\nEnter your mood (or 'q' to quit): ").strip().lower()
+        choice = input("\nType your mood (e.g. happy, sad, calm): ").strip().lower()
+        if choice in moods:
+            return choice
+        print("❌ Invalid mood. Please type one of:", ", ".join(moods))
 
-        if mood == "q":
-            print("\n👋 See you next time, space traveler.")
-            return
 
-        if mood not in MOOD_MAP:
-            print("❌ Invalid mood. Try again.")
+def choose_anime(recommendations: pd.DataFrame):
+    """
+    Show recommendations numbered 1..N and let user pick one by number.
+    """
+    if recommendations.empty:
+        return None
+
+    print("\nChoose an anime to see similar ones:")
+
+    # enumerate from 1 so numbers are clean: 1, 2, 3...
+    for display_idx, (_, row) in enumerate(recommendations.iterrows(), start=1):
+        print(f"{display_idx}. {row['name']} (Rating {row['rating']:.2f})")
+
+    print("0. Skip")
+
+    while True:
+        raw = input("\nEnter number: ").strip()
+        try:
+            choice = int(raw)
+        except ValueError:
+            print("❌ Invalid input. Please enter a number.")
             continue
 
-        target_genres = MOOD_MAP[mood]
-        mask = genre_match_mask(anime_df, target_genres)
-        filtered = anime_df[mask].copy()
+        if choice == 0:
+            return None
 
-        filtered["rating"] = pd.to_numeric(
-            filtered.get("rating", 0), errors="coerce"
-        ).fillna(0)
-        filtered = filtered[filtered["rating"] >= 6.0]
+        if 1 <= choice <= len(recommendations):
+            # iloc uses 0-based index → choice-1
+            return recommendations.iloc[choice - 1]["name"]
 
-        scored = score_anime(filtered, target_genres)
-        shown_for_mood: set[str] = set()
-
-        while True:
-            batch = pick_batch(scored, dislikes, shown_for_mood,
-                               batch_size=10, pool_size=50)
-            if batch.empty:
-                print("⚠️ No more unique anime for this mood. Resetting…")
-                shown_for_mood.clear()
-                batch = pick_batch(scored, dislikes, shown_for_mood,
-                                   batch_size=10, pool_size=50)
-                if batch.empty:
-                    print("Still no anime. Try another mood.")
-                    break
-
-            shown_for_mood.update(batch["name"].tolist())
-
-            print(f"\n✨ MARS picks for mood '{mood}':\n")
-            print(batch[["name", "genre", "rating", "score"]]
-                  .to_string(index=False))
-
-            plot_scores(batch, mood)
-
-            action = input(
-                "\n[l]ike / [d]islike / [r]efresh / [b]ack to moods / [q]uit: "
-            ).strip().lower()
-
-            if action == "q":
-                print("\n👋 See you next time, space traveler.")
-                return
-            if action == "b":
-                break
-            if action == "r":
-                continue
-
-            if action in ("l", "d"):
-                title = input(
-                    "Type the EXACT anime name from the list: "
-                ).strip()
-                if title not in batch["name"].values:
-                    print("❌ That title is not in the current list.")
-                    continue
-
-                if action == "l":
-                    like(title)
-                    likes.add(title)
-                    print(f"✅ Added to likes: {title}")
-                else:
-                    dislike(title)
-                    dislikes.add(title)
-                    print(f"🚫 Added to dislikes: {title}")
-            else:
-                print("❌ Invalid option. Try again.")
+        print("❌ Invalid choice. Try again.")
 
 
+# ---------- MAIN CLI ----------
+def run_cli():
+    print_header()
+
+    # Load dataset
+    df = load_anime(str(CSV_PATH))
+
+    # 1. Choose mood (by typing name)
+    mood = choose_mood()
+    print(f"\n🎭 You chose mood: {mood}")
+    print(f"Mapped genres: {', '.join(MOOD_GENRE_MAP[mood])}")
+
+    # 2. Mood-based recommendations
+    print("\n✨ Top Recommendations:")
+    recs = get_mood_recommendations(df, mood, n=9)
+
+    if recs.empty:
+        print("No recommendations found for this mood.")
+        return
+
+    # print list with clean 1..N numbers
+    for display_idx, (_, row) in enumerate(recs.iterrows(), start=1):
+        print(f"{display_idx}. {row['name']}  | Rating: {row['rating']:.2f}")
+
+    # 3. Choose anime → see similar ones
+    chosen = choose_anime(recs)
+
+    if chosen:
+        print(f"\n🛰 Finding anime similar to: {chosen}")
+        similar = get_similar_by_genre(df, chosen, n=9)
+
+        if similar.empty:
+            print("No similar anime found.")
+        else:
+            print("\n✨ More Like This:")
+            for display_idx, (_, row) in enumerate(similar.iterrows(), start=1):
+                print(f"{display_idx}. {row['name']}  | Rating: {row['rating']:.2f}")
+    else:
+        print("\n🚀 Skipped similarity search.")
+
+    print("\n🌕 Thank you for using MARS CLI!")
+    print("------------------------------------------------\n")
+
+
+# ---------- RUN ----------
 if __name__ == "__main__":
     run_cli()
