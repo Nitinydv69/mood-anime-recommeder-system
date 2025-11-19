@@ -1,43 +1,46 @@
 import pandas as pd
 import os
-def load_anime(data_dir="data"):
-    """Load and clean anime.csv file."""
-    anime_path = os.path.join(data_dir, "anime.csv")
-
-    if not os.path.exists(anime_path):
-        raise FileNotFoundError(f"{anime_path} not found. Please add dataset.")
-
-    anime = pd.read_csv(anime_path)
-    anime.columns = [c.strip().lower() for c in anime.columns]
-
-    rename_map = {}
-    if 'title' in anime.columns:
-        rename_map['title'] = 'name'
-    if 'genre' in anime.columns:
-        rename_map['genre'] = 'genre'
-    if 'score' in anime.columns:
-        rename_map['score'] = 'rating'
-    if rename_map:
-        anime = anime.rename(columns=rename_map)
-
-    anime = anime.dropna(subset=['genre', 'rating'])
-    anime['rating'] = pd.to_numeric(anime['rating'], errors='coerce')
-    anime = anime.dropna(subset=['rating'])
-    anime['genre'] = anime['genre'].astype(str)
-
-    return anime
 
 
-def merge_ratings_if_present(anime, data_dir="data"):
-    """If rating.csv exists, attach mean_user_rating to anime DataFrame."""
-    rating_path = os.path.join(data_dir, "rating.csv")
-    if not os.path.exists(rating_path):
-        return anime
+def load_anime(csv_path: str) -> pd.DataFrame:
+    """
+    Load and lightly clean the anime dataset.
+    Expects at least columns: 'name', 'genre', 'rating'.
+    Others (like 'members', 'episode', 'Type') are ignored.
+    """
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"anime.csv not found at: {csv_path}")
 
-    ratings = pd.read_csv(rating_path)
-    if 'anime_id' in ratings.columns and 'anime_id' in anime.columns:
-        agg = ratings.groupby('anime_id')['rating'].mean().reset_index()
-        agg = agg.rename(columns={'rating': 'mean_user_rating'})
-        anime = anime.merge(agg, on='anime_id', how='left')
+    df = pd.read_csv(csv_path)
 
-    return anime
+    # Basic cleaning
+    if "name" not in df.columns:
+        raise ValueError("Dataset must have a 'name' column.")
+
+    df["name"] = df["name"].astype(str)
+
+    if "genre" not in df.columns:
+        # create empty genre column if missing
+        df["genre"] = ""
+
+    df["genre"] = df["genre"].fillna("").astype(str)
+
+    if "rating" not in df.columns:
+        df["rating"] = 0.0
+
+    df["rating"] = pd.to_numeric(df["rating"], errors="coerce").fillna(0.0)
+
+    # Optional columns
+    if "members" in df.columns:
+        df["members"] = pd.to_numeric(df["members"], errors="coerce").fillna(0)
+    elif "popularity" in df.columns:
+        df["members"] = -pd.to_numeric(df["popularity"], errors="coerce").fillna(0)
+    else:
+        df["members"] = 0
+
+    # Make a parsed genre list
+    df["genre_list"] = df["genre"].apply(
+        lambda g: [x.strip() for x in str(g).split(",")] if g else []
+    )
+
+    return df
