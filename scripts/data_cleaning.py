@@ -1,46 +1,49 @@
 import pandas as pd
-import os
+import requests
+import time
+import ast
 
 
-def load_anime(csv_path: str) -> pd.DataFrame:
-    """
-    Load and lightly clean the anime dataset.
-    Expects at least columns: 'name', 'genre', 'rating'.
-    Others (like 'members', 'episode', 'Type') are ignored.
-    """
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"anime.csv not found at: {csv_path}")
+def get_image_url(name: str) -> str:
+    try:
+        url = f"https://api.jikan.moe/v4/anime?q={name}&limit=1"
+        r = requests.get(url, timeout=10)
+        data = r.json()
 
-    df = pd.read_csv(csv_path)
+        if "data" in data and len(data["data"]) > 0:
+            return data["data"][0]["images"]["jpg"]["large_image_url"]
 
-    # Basic cleaning
-    if "name" not in df.columns:
-        raise ValueError("Dataset must have a 'name' column.")
+        return "https://via.placeholder.com/300x450?text=No+Image"
 
-    df["name"] = df["name"].astype(str)
+    except:
+        return "https://via.placeholder.com/300x450?text=No+Image"
 
-    if "genre" not in df.columns:
-        # create empty genre column if missing
-        df["genre"] = ""
 
-    df["genre"] = df["genre"].fillna("").astype(str)
+def crunchyroll(name: str) -> str:
+    return f"https://www.crunchyroll.com/search?q={name.replace(' ', '+')}"
 
-    if "rating" not in df.columns:
-        df["rating"] = 0.0
 
-    df["rating"] = pd.to_numeric(df["rating"], errors="coerce").fillna(0.0)
+def split_genres(v):
+    if isinstance(v, str):
+        return [x.strip() for x in v.split(",")]
+    return []
 
-    # Optional columns
-    if "members" in df.columns:
-        df["members"] = pd.to_numeric(df["members"], errors="coerce").fillna(0)
-    elif "popularity" in df.columns:
-        df["members"] = -pd.to_numeric(df["popularity"], errors="coerce").fillna(0)
-    else:
-        df["members"] = 0
 
-    # Make a parsed genre list
-    df["genre_list"] = df["genre"].apply(
-        lambda g: [x.strip() for x in str(g).split(",")] if g else []
-    )
+def load_anime(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+
+    df["rating"] = pd.to_numeric(df["rating"], errors="coerce").fillna(0)
+    df["members"] = df.get("members", 0).fillna(0).astype(int)
+
+    df["genre_list"] = df["genre"].apply(split_genres)
+    df["primary_genre"] = df["genre_list"].apply(lambda x: x[0] if x else "Unknown")
+
+    df["crunchyroll"] = df["name"].apply(crunchyroll)
+
+    urls = []
+    for i, name in enumerate(df["name"]):
+        urls.append(get_image_url(name))
+        time.sleep(1)
+    df["image_url"] = urls
 
     return df
