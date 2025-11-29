@@ -91,7 +91,7 @@ Select an anime and get similar titles using genre similarity and rating.
 ## 📁 Folder Structure
 
 ```
-mood-anime-recommender-system/
+mood-anime-recommeder-system/
 │
 ├─ app.py
 ├─ prepare_data.py
@@ -115,7 +115,7 @@ mood-anime-recommender-system/
 ### 1. Clone Repository  
 ```bash
 git clone <your-repo-url>
-cd mood-anime-recommender-system
+cd mood-anime-recommeder-system
 ```
 
 ### 2. Create Virtual Environment (Optional)
