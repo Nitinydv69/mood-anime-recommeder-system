@@ -201,7 +201,7 @@ Uses:
 - Dataset inspired by MAL community datasets  
 - Poster images from MAL/Jikan URLs  
 - Built using **Streamlit**, **pandas**, **plotly**  
-- Developed by **Nitin Yadav**
+- Developed by **Nitin Yadav - 69199A**
 
 ---
 
